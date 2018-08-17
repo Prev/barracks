@@ -1,4 +1,5 @@
 # Barracks
+# Barracks &middot; [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/Prev/barracks/blob/master/LICENSE) [![Coverage Status](https://coveralls.io/repos/github/Prev/barracks/badge.svg)](https://coveralls.io/github/Prev/barracks)  [![Build Status](https://travis-ci.org/Prev/barracks.svg)](https://travis-ci.org/Prev/barracks)
 
 Simple file storing util for a series of data.
 
