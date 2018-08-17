@@ -8,13 +8,16 @@ Simple file storing util for a series of data
 """
 
 import os
+import io
 import json
+import lz4.frame
 
 __version__ = '0.1.0'
 
+
 class Barracks:
 
-	def __init__(self, dirname, chucksize=10000):
+	def __init__(self, dirname, chucksize=10000, compressor='lz4'):
 		""" Initialize Barracks instance
 		:param dirname: Directory name to save data
 		:param chucksize: Maximum length of items per chunk
@@ -22,6 +25,13 @@ class Barracks:
 		self.dirname = dirname
 		self.chucksize = chucksize
 		self.cur_chunk = None
+
+		if compressor == 'lz4':
+			self.compressor = Compressor.Lz4()
+		elif compressor is None:
+			self.compressor = Compressor.Naive()
+		else:
+			raise RuntimeError('Unknown compressor "%s"' % compressor)
 
 		if not os.path.isdir(dirname):
 			os.makedirs(dirname)
@@ -67,20 +77,26 @@ class Barracks:
 
 	def save(self):
 		""" Save current chunk
+		:return: True if there was cur_chunk, False otherwise
 		"""
-		self.cur_chunk.save()
+		if self.cur_chunk and self.cur_chunk.mode == 'w':
+			self.cur_chunk.save()
+			return True
+		else:
+			return False
 
 	def chunks(self):
 		""" Yield all chunks in this barracks
 		`chunk.open()` and `chunk.close()` is called automatically of each iteration step.
 		:return: Iterator<Chunk>
 		"""
+		self.save()
+
 		for file in os.listdir(self.dirname):
 			cid = int(file[0:file.index('.')])
 			chunk = Chunk(self, cid, 'r')
 			chunk.open()
 			yield chunk
-			chunk.close()
 
 	def getchunk(self, key, mode):
 		""" Get chunk by key. If there is not chunk, create one.
@@ -99,8 +115,6 @@ class Barracks:
 				# If there is opened chuck and now switch to another, save old.
 				if self.cur_chunk.mode == 'w':
 					self.cur_chunk.save()
-				else:
-					self.cur_chunk.close()
 
 		# Set current chunk to new one, and open chuck file.
 		self.cur_chunk = Chunk(self, chunkid, mode)
@@ -121,25 +135,19 @@ class Chunk:
 		self.mode = mode
 
 		self.filepath = os.path.join(self.barracks.dirname, '%d.dat' % self.id)
-		self.file = None
-		self.buffer = []
+		self.buffer = None
 
 	def open(self):
 		""" Open file with chunk's mode
 		"""
-		if self.mode == 'w':
-			self.file = open(self.filepath, 'a')
+		if not os.path.isfile(self.filepath):
+			self.buffer = io.StringIO()
 		else:
-			if not os.path.isfile(self.filepath):
-				with open(self.filepath, 'w'):
-					# Create empty file if file not exists
-					pass
-			self.file = open(self.filepath, 'r')
+			with open(self.filepath, 'rb') as file:
+				content = self.barracks.compressor.decompress(file.read())
 
-	def close(self):
-		""" Close opened file
-		"""
-		self.file.close()
+			self.buffer = io.StringIO()
+			self.buffer.write(content)
 
 	def save(self):
 		""" Save data in buffer to file
@@ -147,45 +155,9 @@ class Chunk:
 		if self.mode != 'w':
 			raise RuntimeError('Attempt writing in mode %s' % self.mode)
 
-		for b in self.buffer:
-			self.file.write('%d\t%s\n' % (b[0], b[1]))
-		self.file.close()
-		self.buffer = []
-
-	def items(self):
-		if self.mode != 'r':
-			raise RuntimeError('Attempt reading in mode %s' % self.mode)
-
-		self.file.seek(0)
-		while True:
-			key, value = self.nextitem()
-			if key is None:
-				return
-			yield key, value
-
-	def nextitem(self, loop=False):
-		""" Get nextitem from current file's position.
-		If cursor reaches end of file, reset to first line.
-		:param loop: If true, reset file position to first if reaches end of file
-		:return: Key, Value pair
-		"""
-		if self.mode != 'r':
-			raise RuntimeError('Attempt reading in mode %s' % self.mode)
-
-		line = self.file.readline()
-		if not line:
-			if loop is True:
-				# If line is None, reset file position to first, then fetch again.
-				self.file.seek(0)
-				line = self.file.readline()
-
-			if not line:
-				# If this line is also None, it means file is empty,
-				# So just return None, None
-				return None, None
-
-		i = line.index('\t')
-		return int(line[0:i]), json.loads(line[i+1:])
+		data = self.barracks.compressor.compress(self.buffer.getvalue())
+		with open(self.filepath, 'wb') as file:
+			file.write(data)
 
 	def append(self, key, value):
 		""" Append new text to end of file.
@@ -196,4 +168,62 @@ class Chunk:
 		if self.mode != 'w':
 			raise RuntimeError('Attempt writing in mode %s' % self.mode)
 
-		self.buffer.append((key, json.dumps(value)))
+		self.buffer.write('%d\t%s\n' % (key, json.dumps(value)))
+
+	def nextitem(self, loop=False):
+		""" Get nextitem from current file's position.
+		If cursor reaches end of file, reset to first line.
+		:param loop: If true, reset file position to first if reaches end of file
+		:return: Key, Value pair
+		"""
+		if self.mode != 'r':
+			raise RuntimeError('Attempt reading in mode %s' % self.mode)
+
+		line = self.buffer.readline()
+		if not line:
+			if loop is True:
+				# If line is None, reset file position to first, then fetch again.
+				self.buffer.seek(0)
+				line = self.buffer.readline()
+
+			if not line:
+				# If this line is also None, it means file is empty,
+				# So just return None, None
+				return None, None
+
+		i = line.index('\t')
+		return int(line[0:i]), json.loads(line[i+1:])
+
+	def items(self):
+		""" Iterate all items in this chunk
+		:return: Iterator<Key, Value>
+		"""
+		if self.mode != 'r':
+			raise RuntimeError('Attempt reading in mode %s' % self.mode)
+
+		self.buffer.seek(0)
+		while True:
+			key, value = self.nextitem()
+			if key is None:
+				return
+			yield key, value
+
+
+class Compressor:
+	class Naive:
+		""" Naive Compressor (do not compress data)
+		"""
+		def compress(self, content):
+			return content.encode()
+
+		def decompress(self, data):
+			return data.decode()
+
+	class Lz4(Naive):
+		""" Compressor using lz4 algorithm
+		"""
+		def compress(self, content):
+			return lz4.frame.compress(content.encode())
+
+		def decompress(self, data):
+			return lz4.frame.decompress(data).decode()

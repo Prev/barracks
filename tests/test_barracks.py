@@ -34,6 +34,20 @@ def test_integers(clear_before):
 	assert b.get(6) == 6
 
 
+def test_no_compressor(clear_before):
+	b = Barracks(DIRNAME, compressor=None)
+
+	assert b.get(1) is None
+
+	b.set(1, 1)
+	assert b.get(2) is None
+
+	b.set(2, 2)
+	b.set(3, 3)
+	assert b.get(2) == 2
+	assert b.get(3) == 3
+
+
 def test_strings(clear_before):
 	b = Barracks(DIRNAME)
 
@@ -56,8 +70,6 @@ def test_many(clear_before):
 
 	for chunk in b.chunks():
 		base_key = chunk.id * 10000
-		assert chunk.nextitem() == (base_key, 'a%d' % base_key)
-
 		i = 0
 		for key, value in chunk.items():
 			assert key == base_key + i

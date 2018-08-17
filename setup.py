@@ -23,6 +23,10 @@ setup(
 	url='https://github.com/Prev/barracks',
 	keywords=['barracks', 'file-storage', 'data-mining'],
 
+	install_requires=[
+		'lz4>=2.1.0',
+	],
+
 	classifiers=(
 		'Programming Language :: Python :: 3.3',
 		'Programming Language :: Python :: 3.4',
