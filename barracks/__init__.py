@@ -1,0 +1,1 @@
+from .barracks import Barracks
