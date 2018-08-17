@@ -14,7 +14,7 @@ setup(
 	name='barracks',
 	packages=['barracks'],
 	version=version,
-	description='Simple file storing util for a series of data',
+	description='Simple file storing util for reading & writing series of data for data mining',
 	license='MIT',
 
 	author='Youngsoo Lee',
