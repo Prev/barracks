@@ -1,6 +1,5 @@
 language: python
 python:
-  - "3.3"
   - "3.4"
   - "3.5"
   - "3.6"
@@ -10,7 +9,7 @@ install:
   - pip install -r test-requirements.txt
 
 script:
-  - pytest --cov=barracks
+  - python -m pytest --cov barracks tests/
 
 after_success:
   - coveralls
