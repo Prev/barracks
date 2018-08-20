@@ -1,4 +1,4 @@
-from barracks import Barracks
+from barracks import Barracks, __version__
 import pytest
 import os
 
@@ -56,6 +56,13 @@ def test_strings(clear_before):
 
 	b.set(4131, 'world')
 	assert b.get(4131) == 'world'
+
+
+def test_header(clear_before):
+	b = Barracks(DIRNAME)
+	b.set(1, 1)
+
+	assert b.getchunk(1, 'r').header['_version'] == __version__
 
 
 def test_many(clear_before):

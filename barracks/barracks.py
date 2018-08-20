@@ -12,7 +12,7 @@ import io
 import json
 import lz4.frame
 
-__version__ = '0.1.0'
+__version__ = '0.2.0'
 
 
 class Barracks:
@@ -51,29 +51,20 @@ class Barracks:
 			If you get data by increasing order,
 
 		:param key: Integer. Unique key of data
-		:return: String
+		:return: Object if found, None if not found
 		"""
-		first_key = None
 		chunk = self.getchunk(key, 'r')
+
+		if key not in chunk.header['keys']:
+			# Key is not exists in that chunk
+			return None
 
 		while True:
 			key_i, value_i = chunk.nextitem(loop=True)
-			if key_i is None:
-				# Chunk is empty
-				return None
 
 			if key == key_i:
 				# Found one.
 				return value_i
-
-			if first_key is None:
-				# Set first_key to key that first comes.
-				first_key = key_i
-			elif first_key == key_i:
-				# If first_key is same with current iterated-key,
-				# it means all items in this chunk is checked,
-				# so there is not data with this key.
-				return None
 
 	def save(self):
 		""" Save current chunk
@@ -135,19 +126,28 @@ class Chunk:
 		self.mode = mode
 
 		self.filepath = os.path.join(self.barracks.dirname, '%d.dat' % self.id)
+		self.header = None
 		self.buffer = None
 
 	def open(self):
 		""" Open file with chunk's mode
 		"""
 		if not os.path.isfile(self.filepath):
+			self.header = {'_version': __version__, 'keys': []}
 			self.buffer = io.StringIO()
 		else:
 			with open(self.filepath, 'rb') as file:
 				content = self.barracks.compressor.decompress(file.read())
 
+			idx = content.index('\t')
+			h_len = int(content[0:idx])
+			self.header = json.loads(content[idx+1:idx+1+h_len])
+
 			self.buffer = io.StringIO()
-			self.buffer.write(content)
+			self.buffer.write(content[idx+h_len+1:])
+
+			if self.mode == 'r':
+				self.buffer.seek(0)
 
 	def save(self):
 		""" Save data in buffer to file
@@ -155,7 +155,10 @@ class Chunk:
 		if self.mode != 'w':
 			raise RuntimeError('Attempt writing in mode %s' % self.mode)
 
-		data = self.barracks.compressor.compress(self.buffer.getvalue())
+		h_json = json.dumps(self.header)
+		data = self.barracks.compressor.compress('%d\t%s%s' % (
+			len(h_json), h_json, self.buffer.getvalue()
+		))
 		with open(self.filepath, 'wb') as file:
 			file.write(data)
 
@@ -168,6 +171,7 @@ class Chunk:
 		if self.mode != 'w':
 			raise RuntimeError('Attempt writing in mode %s' % self.mode)
 
+		self.header['keys'].append(key)
 		self.buffer.write('%d\t%s\n' % (key, json.dumps(value)))
 
 	def nextitem(self, loop=False):
@@ -187,8 +191,7 @@ class Chunk:
 				line = self.buffer.readline()
 
 			if not line:
-				# If this line is also None, it means file is empty,
-				# So just return None, None
+				# If there is no line, return None
 				return None, None
 
 		i = line.index('\t')

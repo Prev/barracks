@@ -1,1 +1,1 @@
-from .barracks import Barracks
+from .barracks import Barracks, __version__
