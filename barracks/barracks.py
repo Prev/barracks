@@ -12,7 +12,7 @@ import io
 import json
 import lz4.frame
 
-__version__ = '0.2.0'
+__version__ = '0.3.0'
 
 
 class Barracks:
@@ -26,6 +26,8 @@ class Barracks:
 		self.chucksize = chucksize
 		self.cur_chunk = None
 
+		self.filepath = os.path.join(self.dirname, 'data.barracks')
+
 		if compressor == 'lz4':
 			self.compressor = Compressor.Lz4()
 		elif compressor is None:
@@ -35,6 +37,32 @@ class Barracks:
 
 		if not os.path.isdir(dirname):
 			os.makedirs(dirname)
+
+	def __enter__(self):
+		return self
+
+	def __exit__(self, type, value, traceback):
+		""" Before closing, save current chunk
+		"""
+		# if self.cur_chunk and self.cur_chunk.mode == 'w':
+		# 	self.cur_chunk.save()
+
+		if self.cur_chunk and self.cur_chunk.mode == 'w':
+			self.cur_chunk.save()
+
+		with open(self.filepath, 'wb') as combined_file:
+			for file in os.listdir(self.dirname):
+				x = file.split('.')
+				if len(x) != 3 or x[2] != 'chunk':
+					continue
+				cid = int(x[1])
+
+				with open(os.path.join(self.dirname, file), 'rb') as chunk_file:
+					chunk_data = chunk_file.read()
+
+				combined_file.write(cid.to_bytes(4, 'big'))
+				combined_file.write(len(chunk_data).to_bytes(4, 'big'))
+				combined_file.write(chunk_data)
 
 	def set(self, key, value):
 		""" Set value with key
@@ -66,22 +94,13 @@ class Barracks:
 				# Found one.
 				return value_i
 
-	def save(self):
-		""" Save current chunk
-		:return: True if there was cur_chunk, False otherwise
-		"""
-		if self.cur_chunk and self.cur_chunk.mode == 'w':
-			self.cur_chunk.save()
-			return True
-		else:
-			return False
-
 	def chunks(self):
 		""" Yield all chunks in this barracks
 		`chunk.open()` and `chunk.close()` is called automatically of each iteration step.
 		:return: Iterator<Chunk>
 		"""
-		self.save()
+		if self.cur_chunk and self.cur_chunk.mode == 'w':
+			self.cur_chunk.save()
 
 		for file in os.listdir(self.dirname):
 			cid = int(file[0:file.index('.')])
@@ -125,7 +144,7 @@ class Chunk:
 		self.id = id
 		self.mode = mode
 
-		self.filepath = os.path.join(self.barracks.dirname, '%d.dat' % self.id)
+		self.filepath = os.path.join(self.barracks.dirname, '.%d.chunk' % self.id)
 		self.header = None
 		self.buffer = None
 
@@ -230,3 +249,7 @@ class Compressor:
 
 		def decompress(self, data):
 			return lz4.frame.decompress(data).decode()
+
+
+with Barracks('datadir') as b:
+	b.set(1, 11)
